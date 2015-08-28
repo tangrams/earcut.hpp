@@ -76,10 +76,10 @@ private:
     template <typename Point> N insertNode(const Point &p, N last);
     template <typename Point> N createNode(const Point &p);
 
-    bool hashing;
-    Coord minX, maxX;
-    Coord minY, maxY;
-    double size;
+    bool hashing = false;
+    Coord minX = 0, maxX = 0;
+    Coord minY = 0, maxY = 0;
+    double size = 0;
 
     inline const Vertex &v(N i) const { return vertices[i]; }
 
