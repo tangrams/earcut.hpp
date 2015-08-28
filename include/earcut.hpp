@@ -172,19 +172,23 @@ N Earcut<Coord, N>::linkedList(const Ring &points,
     using Point = typename Ring::value_type;
     double sum = 0;
     const int len = points.size();
-    int i, j;
-    Point p1, p2;
     N last = 0;
 
+    Point p1 = points[0];
+    Point p2 = points[len - 1];
+    int i = 1;
+
     // calculate original winding order of a polygon ring
-    for (i = 0, j = len - 1; i < len; j = i++) {
-        p1 = points[i];
-        p2 = points[j];
+    while (true) {
         const auto p20 = util::nth<0, Point>::get(p2);
         const auto p10 = util::nth<0, Point>::get(p1);
         const auto p11 = util::nth<1, Point>::get(p1);
         const auto p21 = util::nth<1, Point>::get(p2);
         sum += (p20 - p10) * (p11 + p21);
+
+        if (i == len) { break; }
+        p2 = p1;
+        p1 = points[i++];
     }
 
     // link points into circular doubly-linked list in the specified winding order
