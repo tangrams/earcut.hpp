@@ -797,7 +797,7 @@ N Earcut<Coord, N>::splitPolygon(const N a, const N b) {
 }
 
 template <typename Coord, typename N> template <typename Point>
-N Earcut<Coord, N>::createNode(const Point &p) {
+inline N Earcut<Coord, N>::createNode(const Point &p) {
     N i = nodes.size();
     assert(vertices.size() == i);
     assert(used.size() == i);
