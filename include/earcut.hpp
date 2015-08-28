@@ -560,7 +560,9 @@ N Earcut<Coord, N>::findHoleBridge(N const holeNode, N const outerNode) {N node 
         my = v(node)[1];
         amx = px - mx;
 
-        if (amx >= 0 && mx >= bx) {
+        // FIXME: this could lead to div by zero below
+        // if (amx >= 0 && mx >= bx) {
+        if (amx > 0 && mx >= bx) {
             s = (cpy * mx + pcx * my - pcd) * sign;
             if (s >= 0) {
                 t = (pby * mx + bpx * my + pbd) * sign;
