@@ -15,12 +15,6 @@ template <std::size_t I, typename T> struct nth {
     get(const T &t) { return std::get<I>(t); };
 };
 
-template <typename C, typename T>
-inline static C getX(const T &t);
-
-template <typename C, typename T>
-inline static C getY(const T &t);
-
 template <typename T>
 inline static int sgn(T val) {
     return (T(0) < val) - (val < T(0));
@@ -116,10 +110,10 @@ private:
 
 
     template<typename T>
-    inline Coord getX(T p) { return util::getX<Coord>(p); }
+    inline Coord getX(T p) { return util::nth<0, T>::get(p); }
 
     template<typename T>
-    inline Coord getY(T p) { return util::getY<Coord>(p); }
+    inline Coord getY(T p) { return util::nth<1, T>::get(p); }
 
 };
 
@@ -339,10 +333,7 @@ void Earcut<Coord, N>::earcutLinked(N ear, const int pass) {
         prev = ne.prev;
         next = ne.next;
 
-        const auto isEarVal = isEar(ear);
-        if (isEarVal) {
-            Node& np = n(prev);
-            Node& nn = n(next);
+        if (isEar(ear)) {
 
             N vp = vertexMap[prev];
             N ve = vertexMap[ear];
@@ -356,8 +347,8 @@ void Earcut<Coord, N>::earcutLinked(N ear, const int pass) {
             used[vp] = used[ve] = used[vn] = 1;
 
             // remove ear node
-            nn.prev = prev;
-            np.next = next;
+            n(next).prev = prev;
+            n(prev).next = next;
 
             if (hashing) {
                 const NodeZ& zz(z(ear));
@@ -366,8 +357,7 @@ void Earcut<Coord, N>::earcutLinked(N ear, const int pass) {
             }
 
             // skipping the next vertice leads to less sliver triangles
-            ear = nn.next;
-            stop = nn.next;
+            stop = ear = n(next).next;
 
             continue;
         }
