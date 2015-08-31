@@ -44,7 +44,7 @@ public:
 
 private:
     struct Node {
-        Node(N vertex) : vertex(vertex) {}
+        Node() = default;
         Node(const Node &) = delete;
         Node &operator=(const Node &) = delete;
         Node(Node &&) = default;
@@ -52,15 +52,20 @@ private:
 
         // previous and next vertice nodes in a polygon ring
         N prev = 0, next = 0;
+    };
+
+    struct NodeZ {
+        NodeZ() = default;
+        NodeZ(const NodeZ &) = delete;
+        NodeZ &operator=(const NodeZ &) = delete;
+        NodeZ(NodeZ &&) = default;
+        NodeZ &operator=(NodeZ &&) = default;
 
         // z-order curve value
         int32_t z = 0;
 
         // previous and next nodes in z-order
         N prevZ = 0, nextZ = 0;
-
-        // not using N here to force 4 byte alignment when N is 2 byte
-        int32_t vertex;
     };
 
 private:
@@ -95,11 +100,20 @@ private:
     double size = 0;
 
     std::vector<Node> nodes;
+    std::vector<NodeZ> zhash;
+    std::vector<N> used;
+    std::vector<N> vertexMap;
+
     inline Node &n(N i) { return nodes[i]; }
 
     inline const Node &n(N i) const { return nodes[i]; }
 
+    inline NodeZ &z(N i) { return zhash[i]; }
+
+    inline const NodeZ &z(N i) const { return zhash[i]; }
+
     inline const Vertex &v(N i) const { return vertices[i]; }
+
 
     template<typename T>
     inline Coord getX(T p) { return util::getX<Coord>(p); }
@@ -107,7 +121,6 @@ private:
     template<typename T>
     inline Coord getY(T p) { return util::getY<Coord>(p); }
 
-    std::vector<N> used;
 };
 
 template <typename Coord, typename N> template <typename Polygon>
@@ -117,6 +130,8 @@ void Earcut<Coord, N>::operator()(const Polygon &points) {
     vertices.clear();
     nodes.clear();
     used.clear();
+    vertexMap.clear();
+
     size = 0;
 
     int sumPoints = 0;
@@ -134,6 +149,7 @@ void Earcut<Coord, N>::operator()(const Polygon &points) {
     used.resize(sumPoints);
     // + some extra nodes for splitting
     nodes.reserve(sumPoints + 16);
+    vertexMap.reserve(sumPoints + 16);
 
     // insert outer ring
     N last = linkedList(points[0], true);
@@ -147,6 +163,8 @@ void Earcut<Coord, N>::operator()(const Polygon &points) {
     // calculate polygon bbox
     hashing = threshold < 0;
     if (hashing) {
+        zhash.clear();
+        zhash.resize(nodes.size());
 
         minX = maxX = vertices[0][0];
         minY = maxY = vertices[0][1];
@@ -251,6 +269,10 @@ N Earcut<Coord, N>::linkedList(const Ring &points, const bool clockwise) {
         }
     }
 
+    if (hashing) {
+        zhash.resize(nodes.size());
+    }
+
     return last;
 }
 
@@ -276,8 +298,11 @@ N Earcut<Coord, N>::filterPoints(const N start, N end) {
             nnp.next = nn.next;
             nnn.prev = nn.prev;
 
-            if (nn.prevZ) n(nn.prevZ).nextZ = nn.nextZ;
-            if (nn.nextZ) n(nn.nextZ).prevZ = nn.prevZ;
+            if (hashing) {
+                const NodeZ& zz(z(node));
+                if (zz.prevZ) z(zz.prevZ).nextZ = zz.nextZ;
+                if (zz.nextZ) z(zz.nextZ).prevZ = zz.prevZ;
+            }
 
             node = end = nn.prev;
 
@@ -319,18 +344,26 @@ void Earcut<Coord, N>::earcutLinked(N ear, const int pass) {
             Node& np = n(prev);
             Node& nn = n(next);
 
+            N vp = vertexMap[prev];
+            N ve = vertexMap[ear];
+            N vn = vertexMap[next];
+
             // cut off the triangle
-            indices.push_back(np.vertex);
-            indices.push_back(ne.vertex);
-            indices.push_back(nn.vertex);
-            used[np.vertex] = used[ne.vertex] = used[nn.vertex] = 1;
+            indices.push_back(vp);
+            indices.push_back(ve);
+            indices.push_back(vn);
+
+            used[vp] = used[ve] = used[vn] = 1;
 
             // remove ear node
             nn.prev = prev;
             np.next = next;
 
-            if (ne.prevZ) n(ne.prevZ).nextZ = ne.nextZ;
-            if (ne.nextZ) n(ne.nextZ).prevZ = ne.prevZ;
+            if (hashing) {
+                const NodeZ& zz(z(ear));
+                if (zz.prevZ) z(zz.prevZ).nextZ = zz.nextZ;
+                if (zz.nextZ) z(zz.nextZ).prevZ = zz.prevZ;
+            }
 
             // skipping the next vertice leads to less sliver triangles
             ear = nn.next;
@@ -366,28 +399,29 @@ void Earcut<Coord, N>::earcutLinked(N ear, const int pass) {
 template <typename Coord, typename N>
 bool Earcut<Coord, N>::isEar(N ear) const {
     const Node& e(n(ear));
+    const NodeZ& ez(z(ear));
 
     const Vertex &a = v(e.prev);
     const Vertex &b = v(ear);
     const Vertex &c = v(e.next);
 
-    const auto ax = a[0], bx = b[0], cx = c[0];
-    const auto ay = a[1], by = b[1], cy = c[1];
+    const Coord ax = a[0], bx = b[0], cx = c[0];
+    const Coord ay = a[1], by = b[1], cy = c[1];
 
-    const auto abd = ax * by - ay * bx;
-    const auto acd = ax * cy - ay * cx;
-    const auto cbd = cx * by - cy * bx;
-    const auto A = abd - acd - cbd;
+    const Coord abd = ax * by - ay * bx;
+    const Coord acd = ax * cy - ay * cx;
+    const Coord cbd = cx * by - cy * bx;
+    const Coord A = abd - acd - cbd;
 
     if (A <= 0) return false; // reflex, can't be an ear
 
     // now make sure we don't have other points inside the potential ear; the
     // code below is a bit verbose and repetitive but this is done for
     // performance
-    const auto cay = cy - ay;
-    const auto acx = ax - cx;
-    const auto aby = ay - by;
-    const auto bax = bx - ax;
+    const Coord cay = cy - ay;
+    const Coord acx = ax - cx;
+    const Coord aby = ay - by;
+    const Coord bax = bx - ax;
 
     Vertex p;
     typename Vertex::value_type px;
@@ -399,21 +433,21 @@ bool Earcut<Coord, N>::isEar(N ear) const {
     if (hashing) {
 
         // triangle bbox; min & max are calculated like this for speed
-        auto const minTX = ax < bx ? (ax < cx ? ax : cx) : (bx < cx ? bx : cx);
-        auto const minTY = ay < by ? (ay < cy ? ay : cy) : (by < cy ? by : cy);
-        auto const maxTX = ax > bx ? (ax > cx ? ax : cx) : (bx > cx ? bx : cx);
-        auto const maxTY = ay > by ? (ay > cy ? ay : cy) : (by > cy ? by : cy);
+        const Coord minTX = ax < bx ? (ax < cx ? ax : cx) : (bx < cx ? bx : cx);
+        const Coord minTY = ay < by ? (ay < cy ? ay : cy) : (by < cy ? by : cy);
+        const Coord maxTX = ax > bx ? (ax > cx ? ax : cx) : (bx > cx ? bx : cx);
+        const Coord maxTY = ay > by ? (ay > cy ? ay : cy) : (by > cy ? by : cy);
 
         // z-order range for the current triangle bbox;
-        auto const minZ = zOrder(minTX, minTY);
-        auto const maxZ = zOrder(maxTX, maxTY);
+        const int32_t minZ = zOrder(minTX, minTY);
+        const int32_t maxZ = zOrder(maxTX, maxTY);
 
         // first look for points inside the triangle in increasing z-order
-        node = e.nextZ;
+        node = ez.nextZ;
 
-        while (node && n(node).z <= maxZ) {
+        while (node && z(node).z <= maxZ) {
             p = v(node);
-            node = n(node).nextZ;
+            node = z(node).nextZ;
             if (p == a || p == c) continue;
 
             px = p[0];
@@ -430,11 +464,11 @@ bool Earcut<Coord, N>::isEar(N ear) const {
         }
 
         // then look for points in decreasing z-order
-        node = e.prevZ;
+        node = ez.prevZ;
 
-        while (node && n(node).z >= minZ) {
+        while (node && z(node).z >= minZ) {
             p = v(node);
-            node = n(node).prevZ;
+            node = z(node).prevZ;
             if (p == a || p == c) continue;
 
             px = p[0];
@@ -490,25 +524,33 @@ N Earcut<Coord, N>::cureLocalIntersections(N start) {
         const Vertex& vb(v(b));
 
         // a self-intersection where edge (v[i-1],v[i]) intersects (v[i+1],v[i+2])
-        if (na.vertex != nb.vertex &&
+        if (vertexMap[a] != vertexMap[b] &&
             intersects(va, v(node), v(nn.next), vb) &&
             locallyInside(a, vb) &&
             locallyInside(b, va)) {
 
-            indices.push_back(na.vertex);
-            indices.push_back(nn.vertex);
-            indices.push_back(nb.vertex);
-            used[na.vertex] = used[nn.vertex] = used[nb.vertex] = 1;
+            N va = vertexMap[a];
+            N vn = vertexMap[node];
+            N vb = vertexMap[b];
+
+            indices.push_back(va);
+            indices.push_back(vn);
+            indices.push_back(vb);
+
+            used[va] = used[vn] = used[vb] = 1;
 
             // remove two nodes involved
             na.next = b;
             nb.prev = a;
 
-            N az = nn.prevZ;
-            N bz = nn.nextZ ? n(nn.nextZ).nextZ : 0;
+            if (hashing) {
+                const NodeZ& zz(z(node));
+                N az = zz.prevZ;
+                N bz = zz.nextZ ? z(zz.nextZ).nextZ : 0;
 
-            if (az) n(az).nextZ = bz;
-            if (bz) n(bz).prevZ = az;
+                if (az) z(az).nextZ = bz;
+                if (bz) z(bz).prevZ = az;
+            }
 
             node = start = b;
         }
@@ -530,7 +572,7 @@ void Earcut<Coord, N>::splitEarcut(N start) {
         while (b != na.prev) {
             const Node& nb(n(b));
 
-            if (na.vertex != nb.vertex && isValidDiagonal(a, b)) {
+            if (vertexMap[a] != vertexMap[b] && isValidDiagonal(a, b)) {
                 // split the polygon in two by the diagonal
                 N c = splitPolygon(a, b);
 
@@ -681,15 +723,16 @@ void Earcut<Coord, N>::indexCurve(N start) {
 
     do {
         Node& nn(n(node));
+        NodeZ& zz(z(node));
 
-        nn.z = (nn.z ? nn.z : zOrder(v(node)[0], v(node)[1]));
-        nn.prevZ = nn.prev;
-        nn.nextZ = nn.next;
+        zz.z = (zz.z ? zz.z : zOrder(v(node)[0], v(node)[1]));
+        zz.prevZ = nn.prev;
+        zz.nextZ = nn.next;
         node = nn.next;
     } while (node != start);
 
-    n(n(node).prevZ).nextZ = 0;
-    n(node).prevZ = 0;
+    z(z(node).prevZ).nextZ = 0;
+    z(node).prevZ = 0;
 
     sortLinked(node);
 }
@@ -712,7 +755,7 @@ N Earcut<Coord, N>::sortLinked(N list) {
             int pSize = 0;
             for (int i = 0; i < inSize; i++) {
                 pSize++;
-                q = n(q).nextZ;
+                q = z(q).nextZ;
                 if (!q) break;
             }
 
@@ -722,32 +765,32 @@ N Earcut<Coord, N>::sortLinked(N list) {
                 N e;
                 if (pSize == 0) {
                     e = q;
-                    q = n(q).nextZ;
+                    q = z(q).nextZ;
                     qSize--;
                 } else if (qSize == 0 || !q) {
                     e = p;
-                    p = n(p).nextZ;
+                    p = z(p).nextZ;
                     pSize--;
-                } else if (n(p).z <= n(q).z) {
+                } else if (z(p).z <= z(q).z) {
                     e = p;
-                    p = n(p).nextZ;
+                    p = z(p).nextZ;
                     pSize--;
                 } else {
                     e = q;
-                    q = n(q).nextZ;
+                    q = z(q).nextZ;
                     qSize--;
                 }
 
-                if (tail) n(tail).nextZ = e;
+                if (tail) z(tail).nextZ = e;
                 else list = e;
 
-                n(e).prevZ = tail;
+                z(e).prevZ = tail;
                 tail = e;
             }
             p = q;
         }
 
-        n(tail).nextZ = 0;
+        z(tail).nextZ = 0;
 
         if (numMerges <= 1) return list;
 
@@ -814,7 +857,7 @@ inline bool Earcut<Coord, N>::equals(const Vertex &p1, const Vertex &p2) const {
     return p1[0] == p2[0] && p1[1] == p2[1];
 }
 
-#if 0
+#if 1
 // check if two segments intersect
 template <typename Coord, typename N>
 bool Earcut<Coord, N>::intersects(const Vertex &p1, const Vertex &q1, const Vertex &p2, const Vertex &q2) const {
@@ -928,10 +971,18 @@ bool Earcut<Coord, N>::middleInside(const N start, const Vertex &a, const Vertex
 // another to a hole, it merges it into a single ring
 template <typename Coord, typename N>
 N Earcut<Coord, N>::splitPolygon(const N a, const N b) {
-    const N a2 = createNode(n(a).vertex);
-    const N b2 = createNode(n(b).vertex);
-    vertices.emplace_back(vertices[n(a).vertex]);
-    vertices.emplace_back(vertices[n(b).vertex]);
+    const N v1 = vertexMap[a];
+    const N v2 = vertexMap[b];
+
+    const N a2 = createNode(v1);
+    const N b2 = createNode(v2);
+
+    vertices.emplace_back(vertices[v1]);
+    vertices.emplace_back(vertices[v2]);
+
+    if (hashing) {
+        zhash.resize(nodes.size());
+    }
 
     const N an = n(a).next;
     const N bp = n(b).prev;
@@ -954,8 +1005,8 @@ N Earcut<Coord, N>::splitPolygon(const N a, const N b) {
 template <typename Coord, typename N>
 inline N Earcut<Coord, N>::createNode(N vertex) {
     const N i = nodes.size();
-    nodes.emplace_back(vertex);
-
+    nodes.emplace_back();
+    vertexMap.emplace_back(vertex);
     return i;
 }
 
