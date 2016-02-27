@@ -73,7 +73,8 @@ private:
     int32_t zOrder(const double x_, const double y_);
     Node* getLeftmost(Node* start);
     bool pointInTriangle(double ax, double ay, double bx, double by, double cx, double cy, double px, double py) const;
-    bool isValidDiagonal(Node* a, Node* b);
+    bool pointInTriangle(const Node& a, const Node& b, const Node& c, const Node& p) const;
+    bool isValidDiagonal(const Node* a, const Node* b);
     double area(const Node* p, const Node* q, const Node* r) const;
     int8_t areaSign(const Node* q) const;
     void setAreaSign(Node* q);
@@ -338,17 +339,25 @@ void Earcut<N>::earcutLinkedRun(Node* ear) {
 // check whether a polygon node forms a valid ear with adjacent nodes
 template <typename N>
 bool Earcut<N>::isEar(Node* ear) {
-    const Node* a = ear->prev;
-    const Node* b = ear;
-    const Node* c = ear->next;
+    const Node& a = *ear->prev;
+    const Node& b = *ear;
+    const Node& c = *ear->next;
 
-    if (areaSign(b) >= 0) return false; // reflex, can't be an ear
+    if (areaSign(ear) >= 0) return false; // reflex, can't be an ear
+
+    const double minTX = (std::min)(a.x, (std::min)(b.x, c.x));
+    const double minTY = (std::min)(a.y, (std::min)(b.y, c.y));
+    const double maxTX = (std::max)(a.x, (std::max)(b.x, c.x));
+    const double maxTY = (std::max)(a.y, (std::max)(b.y, c.y));
 
     // now make sure we don't have other points inside the potential ear
-    Node* p = ear->next->next;
+    Node* p = c.next;
 
-    while (p != ear->prev) {
-        if (areaSign(p) >= 0 && pointInTriangle(a->x, a->y, b->x, b->y, c->x, c->y, p->x, p->y))
+    while (p != b.prev) {
+        if (areaSign(p) >= 0 &&
+            p->x >= minTX && p->x <= maxTX &&
+            p->y >= minTY && p->y <= maxTY &&
+            pointInTriangle(a, b, c, *p))
             return false;
         p = p->next;
     }
@@ -358,20 +367,19 @@ bool Earcut<N>::isEar(Node* ear) {
 
 template <typename N>
 bool Earcut<N>::isEarHashed(Node* ear) {
-    const Node* a = ear->prev;
-    const Node* b = ear;
-    const Node* c = ear->next;
+    const Node& a = *ear->prev;
+    const Node& b = *ear;
+    const Node& c = *ear->next;
 
-    if (areaSign(b) >= 0) return false; // reflex, can't be an ear
+    if (areaSign(ear) >= 0) return false; // reflex, can't be an ear
 
     // triangle bbox; min & max are calculated like this for speed
-    const double minTX = (std::min)(a->x, (std::min)(b->x, c->x));
-    const double minTY = (std::min)(a->y, (std::min)(b->y, c->y));
-    const double maxTX = (std::max)(a->x, (std::max)(b->x, c->x));
-    const double maxTY = (std::max)(a->y, (std::max)(b->y, c->y));
+    const double minTX = (std::min)(a.x, (std::min)(b.x, c.x));
+    const double minTY = (std::min)(a.y, (std::min)(b.y, c.y));
+    const double maxTX = (std::max)(a.x, (std::max)(b.x, c.x));
+    const double maxTY = (std::max)(a.y, (std::max)(b.y, c.y));
 
     // z-order range for the current triangle bbox;
-    const int32_t minZ = zOrder(minTX, minTY);
     const int32_t maxZ = zOrder(maxTX, maxTY);
 
     // first look for points inside the triangle in increasing z-order
@@ -380,18 +388,24 @@ bool Earcut<N>::isEarHashed(Node* ear) {
     while (p && p->z <= maxZ) {
         if (p != ear->prev && p != ear->next &&
             areaSign(p) >= 0 &&
-            pointInTriangle(a->x, a->y, b->x, b->y, c->x, c->y, p->x, p->y))
+            p->x >= minTX && p->x <= maxTX &&
+            p->y >= minTY && p->y <= maxTY &&
+            pointInTriangle(a, b, c, *p))
             return false;
         p = p->nextZ;
     }
 
     // then look for points in decreasing z-order
+    const int32_t minZ = zOrder(minTX, minTY);
+
     p = ear->prevZ;
 
     while (p && p->z >= minZ) {
         if (p != ear->prev && p != ear->next &&
             areaSign(p) >= 0 &&
-            pointInTriangle(a->x, a->y, b->x, b->y, c->x, c->y, p->x, p->y))
+            p->x >= minTX && p->x <= maxTX &&
+            p->y >= minTY && p->y <= maxTY &&
+            pointInTriangle(a, b, c, *p))
             return false;
         p = p->prevZ;
     }
@@ -676,9 +690,17 @@ bool Earcut<N>::pointInTriangle(double ax, double ay, double bx, double by,
            (bx - px) * (cy - py) - (cx - px) * (by - py) >= 0;
 }
 
+template <typename N>
+bool Earcut<N>::pointInTriangle(const Node& a, const Node& b,
+                                const Node& c, const Node& p) const {
+    return (c.x - p.x) * (a.y - p.y) - (a.x - p.x) * (c.y - p.y) >= 0 &&
+           (a.x - p.x) * (b.y - p.y) - (b.x - p.x) * (a.y - p.y) >= 0 &&
+           (b.x - p.x) * (c.y - p.y) - (c.x - p.x) * (b.y - p.y) >= 0;
+}
+
 // check if a diagonal between two polygon nodes is valid (lies in polygon interior)
 template <typename N>
-bool Earcut<N>::isValidDiagonal(Node* a, Node* b) {
+bool Earcut<N>::isValidDiagonal(const Node* a, const Node* b) {
     return equals(a, b) || (a->next->i != b->i && a->prev->i != b->i && !intersectsPolygon(a, b) &&
            locallyInside(a, b) && locallyInside(b, a) && middleInside(a, b));
 }
