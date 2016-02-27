@@ -59,7 +59,8 @@ private:
 
     template <typename Ring> Node* linkedList(const Ring& points, const bool clockwise);
     Node* filterPoints(Node* start, Node* end = nullptr);
-    void earcutLinked(Node* ear, int pass = 0);
+    void earcutLinked(Node* ear);
+    void earcutLinkedRun(Node* ear);
     bool isEar(Node* ear);
     bool isEarHashed(Node* ear);
     Node* cureLocalIntersections(Node* start);
@@ -128,6 +129,8 @@ private:
         Alloc alloc;
     };
     ObjectPool<Node> nodes;
+
+    std::vector<Node*> rings;
 };
 
 template <typename N> template <typename Polygon>
@@ -181,6 +184,7 @@ void Earcut<N>::operator()(const Polygon& points) {
 
     earcutLinked(outerNode);
 
+    rings.clear();
     nodes.clear();
 }
 
@@ -255,23 +259,38 @@ Earcut<N>::filterPoints(Node* start, Node* end) {
     return end;
 }
 
-// main ear slicing loop which triangulates a polygon (given as a linked list)
 template <typename N>
-void Earcut<N>::earcutLinked(Node* ear, int pass) {
+void Earcut<N>::earcutLinked(Node* ear) {
     if (!ear) return;
 
-    // interlink polygon nodes in z-order
-    if (!pass && hashing) indexCurve(ear);
+
+    rings.push_back(ear);
+
+    while (!rings.empty()) {
+        Node* ring = rings.back();
+        rings.pop_back();
+
+        // interlink polygon nodes in z-order
+        if (hashing) indexCurve(ring);
+
+        earcutLinkedRun(ring);
+    }
+}
+
+// main ear slicing loop which triangulates a polygon (given as a linked list)
+template <typename N>
+void Earcut<N>::earcutLinkedRun(Node* ear) {
+    if (!ear) return;
+
+    int pass = 0;
 
     Node* stop = ear;
     Node* prev;
     Node* next;
 
-    int iterations = 0;
-
     // iterate through ears, slicing them one by one
     while (ear->prev != ear->next) {
-        iterations++;
+
         prev = ear->prev;
         next = ear->next;
 
@@ -294,18 +313,23 @@ void Earcut<N>::earcutLinked(Node* ear, int pass) {
 
         // if we looped through the whole remaining polygon and can't find any more ears
         if (ear == stop) {
-            // try filtering points and slicing again
-            if (!pass) earcutLinked(filterPoints(ear), 1);
+            if (pass == 0) {
+                // try filtering points and slicing again
+                pass = 1;
+                ear = stop = filterPoints(ear);
+                if (!ear) break;
 
-            // if this didn't work, try curing all small self-intersections locally
-            else if (pass == 1) {
-                ear = cureLocalIntersections(ear);
-                earcutLinked(ear, 2);
+            } else if (pass == 1) {
+                // if this didn't work, try curing all small self-intersections locally
+                pass = 2;
+                ear = stop = cureLocalIntersections(ear);
+                if (!ear) break;
 
-            // as a last resort, try splitting the remaining polygon into two
-            } else if (pass == 2) splitEarcut(ear);
-
-            break;
+            } else if (pass == 2) {
+                // as a last resort, try splitting the remaining polygon into two
+                splitEarcut(ear);
+                break;
+            }
         }
     }
 }
@@ -418,8 +442,8 @@ void Earcut<N>::splitEarcut(Node* start) {
                 c = filterPoints(c, c->next);
 
                 // run earcut on each half
-                earcutLinked(a);
-                earcutLinked(c);
+                if (a) { rings.push_back(a); }
+                if (c) { rings.push_back(c); }
                 return;
             }
             b = b->next;
