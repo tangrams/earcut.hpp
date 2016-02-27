@@ -217,9 +217,13 @@ Earcut<N>::linkedList(const Ring& points, const bool clockwise) {
 
     // link points into circular doubly-linked list in the specified winding order
     if (clockwise == (sum > 0)) {
-        for (i = 0; i < len; i++) last = insertNode(vertices + i, points[i], last);
+        for (i = 0; i < len; i++) {
+            last = insertNode(vertices + i, points[i], last);
+        }
     } else {
-        for (i = len - 1; i >= 0; i--) last = insertNode(vertices + i, points[i], last);
+        for (i = len - 1; i >= 0; i--) {
+            last = insertNode(vertices + i, points[i], last);
+        }
     }
 
     vertices += len;
@@ -296,10 +300,7 @@ void Earcut<N>::earcutLinkedRun(Node* ear) {
 
         if (hashing ? isEarHashed(ear) : isEar(ear)) {
             // cut off the triangle
-            indices.emplace_back(prev->i);
-            indices.emplace_back(ear->i);
-            indices.emplace_back(next->i);
-
+            indices.insert(indices.end(), {prev->i, ear->i, next->i});
             removeNode(ear);
 
             // skipping the next vertice leads to less sliver triangles
@@ -409,9 +410,7 @@ Earcut<N>::cureLocalIntersections(Node* start) {
 
         // a self-intersection where edge (v[i-1],v[i]) intersects (v[i+1],v[i+2])
         if (intersects(a, p, p->next, b) && locallyInside(a, b) && locallyInside(b, a)) {
-            indices.emplace_back(a->i);
-            indices.emplace_back(p->i);
-            indices.emplace_back(b->i);
+            indices.insert(indices.end(), {a->i, p->i, b->i});
 
             // remove two nodes involved
             removeNode(p);
