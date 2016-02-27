@@ -36,23 +36,25 @@ private:
         Node(Node&&) = delete;
         Node& operator=(Node&&) = delete;
 
-        const N i;
+        // previous and next vertice nodes in a polygon ring
+        Node* next;
+        Node* prev;
+
         const double x;
         const double y;
 
-        // previous and next vertice nodes in a polygon ring
-        Node* prev = nullptr;
-        Node* next = nullptr;
+        // previous and next nodes in z-order
+        Node* nextZ = nullptr;
+        Node* prevZ = nullptr;
 
         // z-order curve value
         int32_t z = 0;
 
-        // previous and next nodes in z-order
-        Node* prevZ = nullptr;
-        Node* nextZ = nullptr;
-
         // indicates whether this is a steiner point
+        int8_t area;
         bool steiner = false;
+
+        const N i;
     };
 
     template <typename Ring> Node* linkedList(const Ring& points, const bool clockwise);
@@ -72,6 +74,8 @@ private:
     bool pointInTriangle(double ax, double ay, double bx, double by, double cx, double cy, double px, double py) const;
     bool isValidDiagonal(Node* a, Node* b);
     double area(const Node* p, const Node* q, const Node* r) const;
+    int8_t areaSign(const Node* q) const;
+    void setAreaSign(Node* q);
     bool equals(const Node* p1, const Node* p2);
     bool intersects(const Node* p1, const Node* q1, const Node* p2, const Node* q2);
     bool intersectsPolygon(const Node* a, const Node* b);
@@ -84,7 +88,8 @@ private:
     bool hashing;
     double minX, maxX;
     double minY, maxY;
-    double size;
+    double extents;
+    double invExtents;
 
     template <typename T, typename Alloc = std::allocator<T>>
     class ObjectPool {
@@ -135,7 +140,7 @@ void Earcut<N>::operator()(const Polygon& points) {
 
     double x;
     double y;
-    size = 0;
+    extents = 0;
     int threshold = 80;
     std::size_t len = 0;
 
@@ -170,7 +175,8 @@ void Earcut<N>::operator()(const Polygon& points) {
         } while (p != outerNode);
 
         // minX, minY and size are later used to transform coords into integers for z-order calculation
-        size = (std::max)(maxX - minX, maxY - minY);
+        extents = (std::max)(maxX - minX, maxY - minY);
+        invExtents = 32767.0 / extents;
     }
 
     earcutLinked(outerNode);
@@ -200,6 +206,11 @@ Earcut<N>::linkedList(const Ring& points, const bool clockwise) {
         sum += (p20 - p10) * (p11 + p21);
     }
 
+    if (sum == 0) {
+        vertices += len;
+        return nullptr;
+    }
+
     // link points into circular doubly-linked list in the specified winding order
     if (clockwise == (sum > 0)) {
         for (i = 0; i < len; i++) last = insertNode(vertices + i, points[i], last);
@@ -208,6 +219,12 @@ Earcut<N>::linkedList(const Ring& points, const bool clockwise) {
     }
 
     vertices += len;
+
+    Node* node = last;
+    do  {
+        node = node->next;
+        setAreaSign(node);
+    } while (node != last);
 
     return last;
 }
@@ -223,7 +240,7 @@ Earcut<N>::filterPoints(Node* start, Node* end) {
     do {
         again = false;
 
-        if (!p->steiner && (equals(p, p->next) || area(p->prev, p, p->next) == 0)) {
+        if (!p->steiner && (equals(p, p->next) || areaSign(p) == 0)) {
             removeNode(p);
             p = end = p->prev;
 
@@ -300,14 +317,14 @@ bool Earcut<N>::isEar(Node* ear) {
     const Node* b = ear;
     const Node* c = ear->next;
 
-    if (area(a, b, c) >= 0) return false; // reflex, can't be an ear
+    if (areaSign(b) >= 0) return false; // reflex, can't be an ear
 
     // now make sure we don't have other points inside the potential ear
     Node* p = ear->next->next;
 
     while (p != ear->prev) {
-        if (pointInTriangle(a->x, a->y, b->x, b->y, c->x, c->y, p->x, p->y) &&
-            area(p->prev, p, p->next) >= 0) return false;
+        if (areaSign(p) >= 0 && pointInTriangle(a->x, a->y, b->x, b->y, c->x, c->y, p->x, p->y))
+            return false;
         p = p->next;
     }
 
@@ -320,7 +337,7 @@ bool Earcut<N>::isEarHashed(Node* ear) {
     const Node* b = ear;
     const Node* c = ear->next;
 
-    if (area(a, b, c) >= 0) return false; // reflex, can't be an ear
+    if (areaSign(b) >= 0) return false; // reflex, can't be an ear
 
     // triangle bbox; min & max are calculated like this for speed
     const double minTX = (std::min)(a->x, (std::min)(b->x, c->x));
@@ -337,8 +354,9 @@ bool Earcut<N>::isEarHashed(Node* ear) {
 
     while (p && p->z <= maxZ) {
         if (p != ear->prev && p != ear->next &&
-            pointInTriangle(a->x, a->y, b->x, b->y, c->x, c->y, p->x, p->y) &&
-            area(p->prev, p, p->next) >= 0) return false;
+            areaSign(p) >= 0 &&
+            pointInTriangle(a->x, a->y, b->x, b->y, c->x, c->y, p->x, p->y))
+            return false;
         p = p->nextZ;
     }
 
@@ -347,8 +365,9 @@ bool Earcut<N>::isEarHashed(Node* ear) {
 
     while (p && p->z >= minZ) {
         if (p != ear->prev && p != ear->next &&
-            pointInTriangle(a->x, a->y, b->x, b->y, c->x, c->y, p->x, p->y) &&
-            area(p->prev, p, p->next) >= 0) return false;
+            areaSign(p) >= 0 &&
+            pointInTriangle(a->x, a->y, b->x, b->y, c->x, c->y, p->x, p->y))
+            return false;
         p = p->prevZ;
     }
 
@@ -595,8 +614,8 @@ Earcut<N>::sortLinked(Node* list) {
 template <typename N>
 int32_t Earcut<N>::zOrder(const double x_, const double y_) {
     // coords are transformed into non-negative 15-bit integer range
-    int32_t x = static_cast<int32_t>(32767.0 * (x_ - minX) / size);
-    int32_t y = static_cast<int32_t>(32767.0 * (y_ - minY) / size);
+    int32_t x = static_cast<int32_t>((x_ - minX) * invExtents);
+    int32_t y = static_cast<int32_t>((y_ - minY) * invExtents);
 
     x = (x | (x << 8)) & 0x00FF00FF;
     x = (x | (x << 4)) & 0x0F0F0F0F;
@@ -627,7 +646,8 @@ Earcut<N>::getLeftmost(Node* start) {
 
 // check if a point lies within a convex triangle
 template <typename N>
-bool Earcut<N>::pointInTriangle(double ax, double ay, double bx, double by, double cx, double cy, double px, double py) const {
+bool Earcut<N>::pointInTriangle(double ax, double ay, double bx, double by,
+                                double cx, double cy, double px, double py) const {
     return (cx - px) * (ay - py) - (ax - px) * (cy - py) >= 0 &&
            (ax - px) * (by - py) - (bx - px) * (ay - py) >= 0 &&
            (bx - px) * (cy - py) - (cx - px) * (by - py) >= 0;
@@ -644,6 +664,19 @@ bool Earcut<N>::isValidDiagonal(Node* a, Node* b) {
 template <typename N>
 double Earcut<N>::area(const Node* p, const Node* q, const Node* r) const {
     return (q->y - p->y) * (r->x - q->x) - (q->x - p->x) * (r->y - q->y);
+}
+
+template <typename N>
+int8_t Earcut<N>::areaSign(const Node* q) const {
+    return q->area;
+}
+
+template <typename N>
+void Earcut<N>::setAreaSign(Node* q) {
+    const Node* p = q->prev;
+    const Node* r = q->next;
+    double a = (q->y - p->y) * (r->x - q->x) - (q->x - p->x) * (r->y - q->y);
+    q->area = a == 0 ? 0 : a > 0.0 ? 1 : -1;
 }
 
 // check if two points are equal
@@ -675,7 +708,7 @@ bool Earcut<N>::intersectsPolygon(const Node* a, const Node* b) {
 // check if a polygon diagonal is locally inside the polygon
 template <typename N>
 bool Earcut<N>::locallyInside(const Node* a, const Node* b) {
-    return area(a->prev, a, a->next) < 0 ?
+    return areaSign(a) < 0 ?
         area(a, b, a->next) >= 0 && area(a, a->prev, b) >= 0 :
         area(a, b, a->prev) < 0 || area(a, a->next, b) < 0;
 }
@@ -688,7 +721,8 @@ bool Earcut<N>::middleInside(const Node* a, const Node* b) {
     double px = (a->x + b->x) / 2;
     double py = (a->y + b->y) / 2;
     do {
-        if (((p->y > py) != (p->next->y > py)) && (px < (p->next->x - p->x) * (py - p->y) / (p->next->y - p->y) + p->x))
+        if (((p->y > py) != (p->next->y > py)) &&
+            (px < (p->next->x - p->x) * (py - p->y) / (p->next->y - p->y) + p->x))
             inside = !inside;
         p = p->next;
     } while (p != a);
@@ -718,6 +752,14 @@ Earcut<N>::splitPolygon(Node* a, Node* b) {
 
     bp->next = b2;
     b2->prev = bp;
+
+    setAreaSign(a);
+    setAreaSign(a2);
+    setAreaSign(an);
+
+    setAreaSign(b);
+    setAreaSign(b2);
+    setAreaSign(bp);
 
     return b2;
 }
@@ -749,6 +791,9 @@ void Earcut<N>::removeNode(Node* p) {
 
     if (p->prevZ) p->prevZ->nextZ = p->nextZ;
     if (p->nextZ) p->nextZ->prevZ = p->prevZ;
+
+    setAreaSign(p->next);
+    setAreaSign(p->prev);
 }
 }
 
