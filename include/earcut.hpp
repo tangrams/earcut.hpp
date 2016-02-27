@@ -197,8 +197,13 @@ Earcut<N>::linkedList(const Ring& points, const bool clockwise) {
     double sum = 0;
     const int len = points.size();
     int i, j;
-    Point p1, p2;
     Node* last = nullptr;
+
+    Point p1 = points[0];
+    Point p2 = points[len - 1];
+
+    bool duplicate = util::nth<0, Point>::get(p1) == util::nth<0, Point>::get(p2) &&
+                     util::nth<1, Point>::get(p1) == util::nth<1, Point>::get(p2);
 
     // calculate original winding order of a polygon ring
     for (i = 0, j = len - 1; i < len; j = i++) {
@@ -216,13 +221,21 @@ Earcut<N>::linkedList(const Ring& points, const bool clockwise) {
         return nullptr;
     }
 
+
     // link points into circular doubly-linked list in the specified winding order
     if (clockwise == (sum > 0)) {
-        for (i = 0; i < len; i++) {
-            last = insertNode(vertices + i, points[i], last);
+        int end = duplicate ? len - 1 : len;
+
+        for (i = 0; i < end; i++) {
+          last = insertNode(vertices + i, points[i], last);
         }
     } else {
-        for (i = len - 1; i >= 0; i--) {
+        int end = 0;
+        if (duplicate) {
+             end = 1;
+        }
+
+        for (i = len - 1; i >= end; i--) {
             last = insertNode(vertices + i, points[i], last);
         }
     }
