@@ -44,15 +44,15 @@ private:
         const double y;
 
         // previous and next nodes in z-order
-        Node* nextZ = nullptr;
-        Node* prevZ = nullptr;
+        Node* nextZ;
+        Node* prevZ;
 
         // z-order curve value
-        int32_t z = 0;
+        int32_t z;
 
         // indicates whether this is a steiner point
         int8_t area;
-        bool steiner = false;
+        bool steiner;
         int16_t __padding;
 
         const N i;
@@ -179,18 +179,18 @@ void Earcut<N>::operator()(const Polygon& points) {
         sumPoints += points[i].size();
     }
 
-    //estimate size of nodes and indices
+    // estimate size of nodes and indices
     nodes.reset(sumPoints * 3 / 2);
     indices.reserve(sumPoints * 3);
     rings.clear();
 
+    // before linkedList call, must be known in createNode
+    hashing = threshold < 0;
+
     Node* outerNode = linkedList(points[0], true);
     if (!outerNode) return;
 
-    if (points.size() > 1) outerNode = eliminateHoles(points, outerNode);
-
     // if the shape is not too simple, we'll use z-order curve hash later; calculate polygon bbox
-    hashing = threshold < 0;
     if (hashing) {
         Node* p = outerNode->next;
         minX = maxX = p->x;
@@ -208,6 +208,10 @@ void Earcut<N>::operator()(const Polygon& points) {
         // minX, minY and size are later used to transform coords into integers for z-order calculation
         extents = (std::max)(maxX - minX, maxY - minY);
         invExtents = 32767.0 / extents;
+    }
+
+    if (points.size() > 1) {
+        outerNode = eliminateHoles(points, outerNode);
     }
 
     earcutLinked(outerNode);
@@ -811,6 +815,19 @@ typename Earcut<N>::Node*
 Earcut<N>::splitPolygon(Node* a, Node* b) {
     Node* a2 = nodes.construct(a->i, a->x, a->y);
     Node* b2 = nodes.construct(b->i, b->x, b->y);
+
+    a2->steiner = false;
+    b2->steiner = false;
+    if (hashing) {
+        a2->prevZ = nullptr;
+        a2->nextZ = nullptr;
+        a2->z = 0;
+
+        b2->prevZ = nullptr;
+        b2->nextZ = nullptr;
+        b2->z = 0;
+    }
+
     Node* an = a->next;
     Node* bp = b->prev;
 
@@ -842,7 +859,12 @@ template <typename N> template <typename Point>
 typename Earcut<N>::Node*
 Earcut<N>::insertNode(N i, const Point& pt, Node* last) {
     Node* p = nodes.construct(i, getX(pt), getY(pt));
-
+    p->steiner = false;
+    if (hashing) {
+        p->prevZ = nullptr;
+        p->nextZ = nullptr;
+        p->z = 0;
+    }
     if (!last) {
         p->prev = p;
         p->next = p;
@@ -862,8 +884,10 @@ void Earcut<N>::removeNode(Node* p) {
     p->next->prev = p->prev;
     p->prev->next = p->next;
 
-    if (p->prevZ) p->prevZ->nextZ = p->nextZ;
-    if (p->nextZ) p->nextZ->prevZ = p->prevZ;
+    if (hashing) {
+        if (p->prevZ) p->prevZ->nextZ = p->nextZ;
+        if (p->nextZ) p->nextZ->prevZ = p->prevZ;
+    }
 
     setAreaSign(p->next);
     setAreaSign(p->prev);
