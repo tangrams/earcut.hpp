@@ -202,7 +202,6 @@ Earcut<N>::linkedList(const Ring& points, const bool clockwise) {
     using Point = typename Ring::value_type;
     double sum = 0;
     const int len = points.size();
-    int i, j;
     Node* last = nullptr;
 
     Point p1 = points[0];
@@ -211,7 +210,7 @@ Earcut<N>::linkedList(const Ring& points, const bool clockwise) {
     bool duplicate = getX(p1) == getX(p2) && getY(p1) == getY(p2);
 
     // calculate original winding order of a polygon ring
-    for (i = 0, j = len - 1; i < len; j = i++) {
+    for (int i = 0, j = len - 1; i < len; j = i++) {
         p1 = points[i];
         p2 = points[j];
         sum += (getX(p2) - getX(p1)) * (getY(p1) + getY(p2));
@@ -227,7 +226,7 @@ Earcut<N>::linkedList(const Ring& points, const bool clockwise) {
     if (clockwise == (sum > 0)) {
         int end = duplicate ? len - 1 : len;
 
-        for (i = 0; i < end; i++) {
+        for (int i = 0; i < end; i++) {
           last = insertNode(vertices + i, points[i], last);
         }
     } else {
@@ -236,7 +235,7 @@ Earcut<N>::linkedList(const Ring& points, const bool clockwise) {
              end = 1;
         }
 
-        for (i = len - 1; i >= end; i--) {
+        for (int i = len - 1; i >= end; i--) {
             last = insertNode(vertices + i, points[i], last);
         }
     }
@@ -598,32 +597,29 @@ template <typename N>
 typename Earcut<N>::Node*
 Earcut<N>::sortLinked(Node* list) {
     assert(list);
-    Node* p;
-    Node* q;
-    Node* e;
-    Node* tail;
-    int i, numMerges, pSize, qSize;
     int inSize = 1;
 
     while (true) {
-        p = list;
+        Node* p = list;
         list = nullptr;
-        tail = nullptr;
-        numMerges = 0;
+
+        Node *tail = nullptr;
+        int numMerges = 0;
 
         while (p) {
             numMerges++;
-            q = p;
-            pSize = 0;
-            for (i = 0; i < inSize; i++) {
+            Node* q = p;
+            int pSize = 0;
+            for (int i = 0; i < inSize; i++) {
                 pSize++;
                 q = q->nextZ;
                 if (!q) break;
             }
 
-            qSize = inSize;
+            int qSize = inSize;
 
             while (pSize > 0 || (qSize > 0 && q)) {
+                Node *e;
 
                 if (pSize == 0) {
                     e = q;
