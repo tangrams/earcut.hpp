@@ -93,6 +93,12 @@ private:
     double extents;
     double invExtents;
 
+    template<typename T>
+    inline double getX(T p) { return util::nth<0, T>::get(p); }
+
+    template<typename T>
+    inline double getY(T p) { return util::nth<1, T>::get(p); }
+
     template <typename T, typename Alloc = std::allocator<T>>
     class ObjectPool {
     public:
@@ -202,18 +208,13 @@ Earcut<N>::linkedList(const Ring& points, const bool clockwise) {
     Point p1 = points[0];
     Point p2 = points[len - 1];
 
-    bool duplicate = util::nth<0, Point>::get(p1) == util::nth<0, Point>::get(p2) &&
-                     util::nth<1, Point>::get(p1) == util::nth<1, Point>::get(p2);
+    bool duplicate = getX(p1) == getX(p2) && getY(p1) == getY(p2);
 
     // calculate original winding order of a polygon ring
     for (i = 0, j = len - 1; i < len; j = i++) {
         p1 = points[i];
         p2 = points[j];
-        const double p20 = util::nth<0, Point>::get(p2);
-        const double p10 = util::nth<0, Point>::get(p1);
-        const double p11 = util::nth<1, Point>::get(p1);
-        const double p21 = util::nth<1, Point>::get(p2);
-        sum += (p20 - p10) * (p11 + p21);
+        sum += (getX(p2) - getX(p1)) * (getY(p1) + getY(p2));
     }
 
     if (sum == 0) {
@@ -826,7 +827,7 @@ Earcut<N>::splitPolygon(Node* a, Node* b) {
 template <typename N> template <typename Point>
 typename Earcut<N>::Node*
 Earcut<N>::insertNode(N i, const Point& pt, Node* last) {
-    Node* p = nodes.construct(i, util::nth<0, Point>::get(pt), util::nth<1, Point>::get(pt));
+    Node* p = nodes.construct(i, getX(pt), getY(pt));
 
     if (!last) {
         p->prev = p;
