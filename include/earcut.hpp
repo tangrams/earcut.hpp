@@ -53,6 +53,7 @@ private:
         // indicates whether this is a steiner point
         int8_t area;
         bool steiner = false;
+        int16_t __padding;
 
         const N i;
     };
@@ -107,31 +108,50 @@ private:
             reset(blockSize);
         }
         ~ObjectPool() {
-            clear();
+            for (auto allocation : allocations) {
+                alloc.deallocate(allocation, blockSize);
+            }
         }
         template <typename... Args>
         T* construct(Args&&... args) {
             if (currentIndex >= blockSize) {
-                currentBlock = alloc.allocate(blockSize);
-                allocations.emplace_back(currentBlock);
+                if (++blockIndex == allocations.size()){
+                    //printf("alloc %d\n", blockIndex);
+                    currentBlock = alloc.allocate(blockSize);
+                    allocations.emplace_back(currentBlock);
+                } else {
+                    currentBlock = allocations[blockIndex];
+                }
                 currentIndex = 0;
             }
             T* object = &currentBlock[currentIndex++];
             alloc.construct(object, std::forward<Args>(args)...);
             return object;
         }
-        void reset(std::size_t newBlockSize) {
-            for (auto allocation : allocations) alloc.deallocate(allocation, blockSize);
-            allocations.clear();
-            blockSize = std::max<std::size_t>(1, newBlockSize);
-            currentBlock = nullptr;
-            currentIndex = blockSize;
+        void reset(std::size_t requestedSize) {
+            if (allocations.empty()) {
+                currentBlock = alloc.allocate(blockSize);
+                allocations.emplace_back(currentBlock);
+            } else {
+                size_t nBlocks = requestedSize / blockSize + 1;
+                if (nBlocks < allocations.size()) {
+                    //printf("discard %d %d\n", allocations.size(),  nBlocks);
+                    for (size_t i = nBlocks; i < allocations.size(); i++) {
+                        alloc.deallocate(allocations[i], blockSize);
+                    }
+                    allocations.resize(nBlocks);
+                }
+            }
+            currentIndex = 0;
+            blockIndex = 0;
+            currentBlock = allocations[blockIndex];
         }
-        void clear() { reset(blockSize); }
+        void clear() { reset(0); }
     private:
         T* currentBlock = nullptr;
-        std::size_t currentIndex = 1;
-        std::size_t blockSize = 1;
+        std::size_t currentIndex = 0;
+        std::size_t blockIndex = 0;
+        std::size_t blockSize = 1024;
         std::vector<T*> allocations;
         Alloc alloc;
     };
@@ -152,16 +172,17 @@ void Earcut<N>::operator()(const Polygon& points) {
     double y;
     extents = 0;
     int threshold = 80;
-    std::size_t len = 0;
+    std::size_t sumPoints = 0;
 
     for (size_t i = 0; threshold >= 0 && i < points.size(); i++) {
         threshold -= points[i].size();
-        len += points[i].size();
+        sumPoints += points[i].size();
     }
 
     //estimate size of nodes and indices
-    nodes.reset(len * 3 / 2);
-    indices.reserve(len + points[0].size());
+    nodes.reset(sumPoints * 3 / 2);
+    indices.reserve(sumPoints * 3);
+    rings.clear();
 
     Node* outerNode = linkedList(points[0], true);
     if (!outerNode) return;
@@ -190,9 +211,6 @@ void Earcut<N>::operator()(const Polygon& points) {
     }
 
     earcutLinked(outerNode);
-
-    rings.clear();
-    nodes.clear();
 }
 
 // create a circular doubly linked list from polygon points in the specified winding order
