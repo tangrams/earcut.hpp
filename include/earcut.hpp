@@ -23,14 +23,14 @@ template <typename N = uint32_t>
 class Earcut {
 public:
     std::vector<N> indices;
-    N vertices = 0;
+    N sumVertices = 0;
 
     template <typename Polygon>
     void operator()(const Polygon& points);
 
 private:
     struct Node {
-        Node(N index, double x_, double y_) : i(index), x(x_), y(y_) {}
+        Node(N index, double x_, double y_) : x(x_), y(y_), i(index) {}
         Node(const Node&) = delete;
         Node& operator=(const Node&) = delete;
         Node(Node&&) = delete;
@@ -164,7 +164,7 @@ template <typename N> template <typename Polygon>
 void Earcut<N>::operator()(const Polygon& points) {
     // reset
     indices.clear();
-    vertices = 0;
+    sumVertices = 0;
 
     if (points.empty()) return;
 
@@ -217,14 +217,14 @@ void Earcut<N>::operator()(const Polygon& points) {
     earcutLinked(outerNode);
 }
 
-// create a circular doubly linked list from polygon points in the specified winding order
+// Create a circular doubly linked list from polygon points in the specified winding order.
+// Clockwise means outer ring.
 template <typename N> template <typename Ring>
 typename Earcut<N>::Node*
 Earcut<N>::linkedList(const Ring& points, const bool clockwise) {
     using Point = typename Ring::value_type;
     double sum = 0;
     const int len = points.size();
-    Node* last = nullptr;
 
     Point p1 = points[0];
     Point p2 = points[len - 1];
@@ -239,30 +239,28 @@ Earcut<N>::linkedList(const Ring& points, const bool clockwise) {
     }
 
     if (sum == 0) {
-        vertices += len;
+        sumVertices += len;
         return nullptr;
     }
 
-
     // link points into circular doubly-linked list in the specified winding order
+    Node* last = nullptr;
     if (clockwise == (sum > 0)) {
         int end = duplicate ? len - 1 : len;
 
         for (int i = 0; i < end; i++) {
-          last = insertNode(vertices + i, points[i], last);
+          last = insertNode(sumVertices + i, points[i], last);
         }
     } else {
-        int end = 0;
-        if (duplicate) {
-             end = 1;
-        }
+        int start = len;
+        int end = duplicate ? 1 : 0;
 
-        for (int i = len - 1; i >= end; i--) {
-            last = insertNode(vertices + i, points[i], last);
+        for (int i = start - 1; i >= end; i--) {
+            last = insertNode(sumVertices + i, points[i], last);
         }
     }
 
-    vertices += len;
+    sumVertices += len;
 
     Node* node = last;
     do  {
@@ -284,7 +282,7 @@ Earcut<N>::filterPoints(Node* start, Node* end) {
     do {
         again = false;
 
-        if (!p->steiner && (equals(p, p->next) || areaSign(p) == 0)) {
+        if ((equals(p, p->next) || areaSign(p) == 0) && !p->steiner) {
             removeNode(p);
             p = end = p->prev;
 
@@ -765,8 +763,8 @@ bool Earcut<N>::equals(const Node* p1, const Node* p2) {
 // check if two segments intersect
 template <typename N>
 bool Earcut<N>::intersects(const Node* p1, const Node* q1, const Node* p2, const Node* q2) {
-    return area(p1, q1, p2) > 0 != area(p1, q1, q2) > 0 &&
-           area(p2, q2, p1) > 0 != area(p2, q2, q1) > 0;
+    return ((area(p1, q1, p2) > 0) != (area(p1, q1, q2) > 0) &&
+            (area(p2, q2, p1) > 0) != (area(p2, q2, q1) > 0));
 }
 
 // check if a polygon diagonal intersects any polygon segments
