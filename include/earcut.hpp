@@ -268,6 +268,8 @@ Earcut<N>::linkedList(const Ring& points, const bool clockwise) {
         setAreaSign(node);
     } while (node != last);
 
+    last = filterPoints(last);
+
     return last;
 }
 
@@ -558,9 +560,9 @@ Earcut<N>::findHoleBridge(Node* hole, Node* outerNode) {
         p = p->next;
     } while (p != outerNode);
 
-    if (!m) return 0;
+    if (!m) { return nullptr; }
 
-    if (hole->x == m->x) return m->prev;
+    if (hole->x == m->x) { return m->prev; }
 
     // look for points inside the triangle of hole Vertex, segment intersection and endpoint;
     // if there are no points found, we have a valid connection;
@@ -574,20 +576,39 @@ Earcut<N>::findHoleBridge(Node* hole, Node* outerNode) {
     double mx = m->x;
     double my = m->y;
 
+    Node* inside = nullptr;
+    double nearestX = -std::numeric_limits<double>::infinity();
+
     while (p != stop) {
         if (hx >= p->x && p->x >= mx &&
-            pointInTriangle(hy < my ? hx : qx, hy, mx, my, hy < my ? qx : hx, hy, p->x, p->y)) {
+            pointInTriangle(hy < my ? hx : qx, hy,
+                            mx, my,
+                            hy < my ? qx : hx, hy,
+                            p->x, p->y)) {
+
 
             tanCur = std::abs(hy - p->y) / (hx - p->x); // tangential
 
-            if ((tanCur < tanMin || (tanCur == tanMin && p->x > m->x)) && locallyInside(p, hole)) {
-                m = p;
+            // 6. If any reflex point lies within the triangle, take the
+            //    point with the least angle between the horizontal ray and the segment
+            //    <h,p> (<M,R>). If the angle is equal take the one that is nearer to M
+
+            // Must find a point inside triangle
+            // m = nullptr;
+
+            if ((tanCur < tanMin || (tanCur == tanMin && p->x > nearestX))
+                && areaSign(p) != 0
+                && locallyInside(p, hole)) {
+
+                nearestX = p->x;
+                inside = p;
                 tanMin = tanCur;
             }
         }
-
         p = p->next;
     }
+
+    if (inside) { return inside; }
 
     return m;
 }
@@ -751,7 +772,7 @@ void Earcut<N>::setAreaSign(Node* q) {
     const Node* p = q->prev;
     const Node* r = q->next;
     double a = (q->y - p->y) * (r->x - q->x) - (q->x - p->x) * (r->y - q->y);
-    q->area = a == 0 ? 0 : a > 0.0 ? 1 : -1;
+    q->area = a > 0.0 ? 1 : a < 0.0 ? -1 : 0;
 }
 
 // check if two points are equal
