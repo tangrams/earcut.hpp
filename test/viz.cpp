@@ -22,6 +22,13 @@ static bool drawFill = true;
 static bool drawMesh = true;
 static bool dirty = true;
 
+static float scale = 1.0f;
+static float posX = 0;
+static float posY = 0;
+static float prevX = 0;
+static float prevY = 0;
+static bool mDown = false;
+
 static int shapeIndex = 0;
 const static int totalShapes = 27;
 
@@ -83,10 +90,22 @@ void drawPolygon(const char *name, const Polygon &polygon) {
     glViewport(0, 0, fbWidth, fbHeight);
     glMatrixMode(GL_PROJECTION);
     glLoadIdentity();
-    glOrtho(shape.midX - shape.ext, shape.midX + shape.ext, shape.midY + shape.ext, shape.midY - shape.ext, 0, 1);
+    glOrtho((shape.midX - shape.ext),
+            (shape.midX + shape.ext),
+            (shape.midY + shape.ext),
+            (shape.midY - shape.ext),
+            0, 1);
+
     glMatrixMode(GL_MODELVIEW);
+    glLoadIdentity();
+    glTranslatef(shape.midX, shape.midY, 0);
+    glScalef(scale, scale, 1);
+
+    glTranslatef(-shape.midX + posX * shape.ext/fbWidth, -shape.midY + posY * shape.ext/fbWidth, 0);
 
     glClear(GL_COLOR_BUFFER_BIT);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
     const auto &v = shape.vertices;
     const auto &x = shape.indices;
@@ -94,9 +113,18 @@ void drawPolygon(const char *name, const Polygon &polygon) {
     // Draw triangle fill
     if (drawFill) {
         glBegin(GL_TRIANGLES);
-        glColor3f(0.3f, 0.3f, 0.3f);
-        for (const auto pt : x) {
-            glVertex2f(static_cast<GLfloat>(v[pt][0]), static_cast<GLfloat>(v[pt][1]));
+        glColor4f(0.6f, 0.6f, 0.6f, 1.0f);
+        int nTri = x.size()/3;
+        float step = 1.0f/nTri;
+        float c = 0;
+
+        for (int i = 0; i < x.size(); i+=3) {
+            glColor4f(c, 0, 1-c, 0.5f);
+            c += step;
+            glVertex2f(static_cast<GLfloat>(v[x[i+0]][0]), static_cast<GLfloat>(v[x[i+0]][1]));
+            glVertex2f(static_cast<GLfloat>(v[x[i+1]][0]), static_cast<GLfloat>(v[x[i+1]][1]));
+            glVertex2f(static_cast<GLfloat>(v[x[i+2]][0]), static_cast<GLfloat>(v[x[i+2]][1]));
+
         }
         glEnd();
     }
@@ -105,7 +133,7 @@ void drawPolygon(const char *name, const Polygon &polygon) {
     if (drawMesh) {
         glLineWidth(float(fbWidth) / width);
         glBegin(GL_LINES);
-        glColor3f(1, 0, 0);
+        glColor4f(1, 0, 0, 0.2);
         for (size_t i = 0; i < x.size(); i += 3) {
             glVertex2f(static_cast<GLfloat>(v[x[i]][0]), static_cast<GLfloat>(v[x[i]][1]));
             glVertex2f(static_cast<GLfloat>(v[x[i + 1]][0]), static_cast<GLfloat>(v[x[i + 1]][1]));
@@ -116,6 +144,18 @@ void drawPolygon(const char *name, const Polygon &polygon) {
         }
         glEnd();
     }
+
+    for (auto& ring : polygon) {
+        glBegin(GL_LINE_LOOP);
+        glColor4f(0, 0, 0, 0.4);
+
+        for (auto& p : ring) {
+            glVertex2f(static_cast<GLfloat>(p.first), static_cast<GLfloat>(p.second));
+        }
+        glEnd();
+
+    }
+
 }
 
 
@@ -160,6 +200,31 @@ int main() {
             dirty = true;
         }
     });
+    glfwSetScrollCallback(window, [](GLFWwindow* window, double scrollx, double scrolly) {
+        scale *= scrolly < 0 ? 0.75 : 1.25;
+        dirty = true;
+
+      });
+    glfwSetCursorPosCallback(window, [](GLFWwindow* window, double x, double y){
+        int action = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_1);
+
+        if (action == GLFW_PRESS) {
+          if (!mDown) {
+            mDown = true;
+            prevX = x;
+            prevY = y;
+            return;
+          }
+
+          posX += (x - prevX) / (scale/2);
+          posY += (y - prevY) / (scale/2);
+          prevX = x;
+          prevY = y;
+          dirty = true;
+        } else {
+          mDown = false;
+        }
+      });
 
     glfwSetFramebufferSizeCallback(window, [](GLFWwindow * /*win*/, int w, int h) {
         fbWidth = w;
