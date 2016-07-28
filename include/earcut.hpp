@@ -30,7 +30,21 @@ public:
 
 private:
     struct Node {
-        Node(N index, double x_, double y_) : x(x_), y(y_), i(index) {}
+
+        Node(Node* prev_, N index, double x_, double y_)
+            : x(x_), y(y_), i(index) {
+
+            if (prev_) {
+                next = prev_->next;
+                prev = prev_;
+                prev_->next->prev = this;
+                prev_->next = this;
+            } else {
+                next = this;
+                prev = this;
+            }
+        }
+
         Node(const Node&) = delete;
         Node& operator=(const Node&) = delete;
         Node(Node&&) = delete;
@@ -44,15 +58,15 @@ private:
         const double y;
 
         // previous and next nodes in z-order
-        Node* nextZ;
-        Node* prevZ;
+        Node* nextZ = nullptr;
+        Node* prevZ = nullptr;
 
         // z-order curve value
-        int32_t z;
+        int32_t z = 0;
 
         // indicates whether this is a steiner point
-        int8_t area;
-        bool steiner;
+        int8_t area = 0;
+        bool steiner = false;
 
         const N i;
     };
@@ -836,20 +850,8 @@ bool Earcut<N>::middleInside(const Node* a, const Node* b) {
 template <typename N>
 typename Earcut<N>::Node*
 Earcut<N>::splitPolygon(Node* a, Node* b) {
-    Node* a2 = nodes.construct(a->i, a->x, a->y);
-    Node* b2 = nodes.construct(b->i, b->x, b->y);
-
-    a2->steiner = false;
-    b2->steiner = false;
-    if (hashing) {
-        a2->prevZ = nullptr;
-        a2->nextZ = nullptr;
-        a2->z = 0;
-
-        b2->prevZ = nullptr;
-        b2->nextZ = nullptr;
-        b2->z = 0;
-    }
+    Node* a2 = nodes.construct(nullptr, a->i, a->x, a->y);
+    Node* b2 = nodes.construct(nullptr, b->i, b->x, b->y);
 
     Node* an = a->next;
     Node* bp = b->prev;
@@ -881,25 +883,7 @@ Earcut<N>::splitPolygon(Node* a, Node* b) {
 template <typename N> template <typename Point>
 typename Earcut<N>::Node*
 Earcut<N>::insertNode(N i, const Point& pt, Node* last) {
-    Node* p = nodes.construct(i, getX(pt), getY(pt));
-    p->steiner = false;
-    if (hashing) {
-        p->prevZ = nullptr;
-        p->nextZ = nullptr;
-        p->z = 0;
-    }
-    if (!last) {
-        p->prev = p;
-        p->next = p;
-
-    } else {
-        assert(last);
-        p->next = last->next;
-        p->prev = last;
-        last->next->prev = p;
-        last->next = p;
-    }
-    return p;
+    return nodes.construct(last, i, getX(pt), getY(pt));
 }
 
 template <typename N>
