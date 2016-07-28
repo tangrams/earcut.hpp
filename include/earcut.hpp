@@ -261,6 +261,11 @@ Earcut<N>::linkedList(const Ring& points, const bool clockwise) {
 
     sumVertices += len;
 
+    if (!last) {
+        sumVertices += len;
+        return nullptr;
+    }
+
     Node* node = last;
     do  {
         node = node->next;
