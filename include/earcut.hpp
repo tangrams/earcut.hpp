@@ -53,7 +53,6 @@ private:
         // indicates whether this is a steiner point
         int8_t area;
         bool steiner;
-        int16_t __padding;
 
         const N i;
     };
